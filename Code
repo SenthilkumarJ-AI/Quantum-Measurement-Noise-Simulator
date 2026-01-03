@@ -1,0 +1,125 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import ipywidgets as widgets
+from IPython.display import display, Markdown, clear_output
+
+from qiskit import QuantumCircuit
+from qiskit.quantum_info import Statevector
+from qiskit_aer import AerSimulator
+from qiskit_aer.noise import NoiseModel, depolarizing_error
+from qiskit_aer.noise.errors import pauli_error # Changed from bit_flip_error
+from qiskit.visualization import plot_histogram
+
+# ---------------- UI ELEMENTS ----------------
+title = Markdown("""
+## ⚛️ Quantum Measurement & Noise Simulator
+**Explore ideal vs realistic quantum measurements through an interactive UI**
+""")
+
+state_dd = widgets.Dropdown(
+    options=["|0⟩", "|1⟩", "|+⟩"],
+    description="Initial State:",
+    style={"description_width": "initial"}
+)
+
+gate_dd = widgets.Dropdown(
+    options=["I", "X", "H"],
+    description="Quantum Gate:",
+    style={"description_width": "initial"}
+)
+
+shots_slider = widgets.IntSlider(
+    value=1024,
+    min=100,
+    max=5000,
+    step=100,
+    description="Shots:",
+    style={"description_width": "initial"}
+)
+
+mode_toggle = widgets.ToggleButtons(
+    options=["Ideal Execution", "Noisy Execution"],
+    description="Simulation Mode:",
+    style={"description_width": "initial"}
+)
+
+run_btn = widgets.Button(
+    description="Run Simulation",
+    button_style="success",
+    icon="play"
+)
+
+output = widgets.Output()
+
+# ---------------- HELPER FUNCTIONS ----------------
+def build_circuit(state, gate):
+    qc = QuantumCircuit(1, 1)
+    if state == "|1⟩":
+        qc.x(0)
+    elif state == "|+⟩":
+        qc.h(0)
+
+    if gate == "X":
+        qc.x(0)
+    elif gate == "H":
+        qc.h(0)
+
+    qc.measure(0, 0)
+    return qc
+
+def noise_model():
+    noise = NoiseModel()
+    noise.add_all_qubit_quantum_error(
+        depolarizing_error(0.02, 1), ["x", "h"]
+    )
+    noise.add_all_qubit_quantum_error(
+        pauli_error([('X', 0.01), ('I', 0.99)]), ["measure"] # Changed to pauli_error
+    )
+    return noise
+
+# ---------------- CORE LOGIC ----------------
+def run_simulation(b):
+    with output:
+        clear_output()
+
+        qc = build_circuit(state_dd.value, gate_dd.value)
+
+        display(Markdown("### Quantum Circuit"))
+        display(qc.draw(output="mpl"))
+        plt.show()
+
+        sv = Statevector.from_instruction(
+            qc.remove_final_measurements(inplace=False)
+        )
+
+        display(Markdown("### Ideal Measurement Probabilities"))
+        for k, v in sv.probabilities_dict().items():
+            print(f"|{k}⟩ : {round(v, 4)}")
+
+        if mode_toggle.value == "Noisy Execution":
+            simulator = AerSimulator(noise_model=noise_model())
+            display(Markdown("### Execution Mode: **Noisy Quantum Simulation**"))
+        else:
+            simulator = AerSimulator()
+            display(Markdown("### Execution Mode: **Ideal Quantum Simulation**"))
+
+        result = simulator.run(qc, shots=shots_slider.value).result()
+        counts = result.get_counts()
+
+        display(Markdown("### Measurement Outcomes"))
+        print(counts)
+
+        display(Markdown("### Measurement Histogram"))
+        display(plot_histogram(counts))
+        plt.show()
+
+# ---------------- DISPLAY UI ----------------
+run_btn.on_click(run_simulation)
+
+display(title)
+display(state_dd)
+display(gate_dd)
+display(shots_slider)
+display(mode_toggle)
+display(run_btn)
+display(output)
